@@ -51,7 +51,7 @@ Because it's all together, the parts also depend on each other in ways that are 
 | Coupling type | What it means | Find it in `app.py` |
 |---|---|---|
 | Common | Functions share global data | `CURRENT_MEMBER` |
-| External | Code depends on an outside tool or file | `sqlite3.connect("library.db")`, `outbox.txt` |
+| External | Code depends on an outside tool or file | `db.connect()`, `outbox.txt` |
 | Control | A word passed in chooses what the function does | `check(value, kind)`, `notify(kind, ...)` |
 | Stamp | A function gets a whole row but uses only part of it | `CURRENT_MEMBER[2]` |
 
@@ -109,7 +109,7 @@ New files go **next to `app.py`**.
    from db import init_db
    ```
 
-4. In `app.py`, replace every `sqlite3.connect("library.db")` with `db.connect()`, using **Cmd+Option+F** (Windows: **Ctrl+H**). Then delete the `import sqlite3` line.
+4. In `app.py`, replace every `db.connect()` with `db.connect()`, using **Cmd+Option+F** (Windows: **Ctrl+H**). Then delete the `import sqlite3` line.
 
 **Run the tests, then commit.**
 

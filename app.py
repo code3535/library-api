@@ -1,17 +1,22 @@
 import os
 import re
-import sqlite3
 from datetime import date, timedelta
 
 from flask import Flask, jsonify, request
 
+import db
+from db import init_db
+
 app = Flask(__name__)
+from book_routes import books_bp
+
+app.register_blueprint(books_bp)
 
 CURRENT_MEMBER = None
 
 
 def init_db():
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     conn.executescript(
         """
         DROP TABLE IF EXISTS books;
@@ -100,62 +105,7 @@ def notify(kind, title="", send=True):
 # ---------- books ----------
 
 
-@app.route("/books", methods=["GET"])
-def list_books():
-    conn = sqlite3.connect("library.db")
-    if request.args.get("available") == "true":
-        rows = conn.execute("SELECT * FROM books WHERE available = 1").fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM books").fetchall()
-    conn.close()
-    result = []
-    for r in rows:
-        result.append({"id": r[0], "title": r[1], "author": r[2], "isbn": r[3], "available": bool(r[4])})
-    return jsonify(result)
 
-
-@app.route("/books/<int:book_id>", methods=["GET"])
-def get_book(book_id):
-    conn = sqlite3.connect("library.db")
-    r = conn.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
-    conn.close()
-    if r is None:
-        return jsonify({"error": "book not found"}), 404
-    return jsonify({"id": r[0], "title": r[1], "author": r[2], "isbn": r[3], "available": bool(r[4])})
-
-
-@app.route("/books", methods=["POST"])
-def create_book():
-    data = request.get_json(silent=True) or {}
-    if not data.get("title") or not data.get("author"):
-        return jsonify({"error": "title and author are required"}), 400
-    if not check(data.get("isbn"), "isbn"):
-        return jsonify({"error": "invalid isbn"}), 400
-    conn = sqlite3.connect("library.db")
-    cur = conn.execute(
-        "INSERT INTO books (title, author, isbn, available) VALUES (?, ?, ?, 1)",
-        (data["title"], data["author"], data["isbn"]),
-    )
-    conn.commit()
-    r = conn.execute("SELECT * FROM books WHERE id = ?", (cur.lastrowid,)).fetchone()
-    conn.close()
-    return jsonify({"id": r[0], "title": r[1], "author": r[2], "isbn": r[3], "available": bool(r[4])}), 201
-
-
-@app.route("/books/<int:book_id>", methods=["DELETE"])
-def delete_book(book_id):
-    conn = sqlite3.connect("library.db")
-    r = conn.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
-    if r is None:
-        conn.close()
-        return jsonify({"error": "book not found"}), 404
-    if r[4] == 0:
-        conn.close()
-        return jsonify({"error": "book is on loan"}), 409
-    conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
-    conn.commit()
-    conn.close()
-    return "", 204
 
 
 # ---------- members ----------
@@ -163,7 +113,7 @@ def delete_book(book_id):
 
 @app.route("/members", methods=["GET"])
 def list_members():
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     rows = conn.execute("SELECT * FROM members").fetchall()
     conn.close()
     result = []
@@ -174,7 +124,7 @@ def list_members():
 
 @app.route("/members/<int:member_id>", methods=["GET"])
 def get_member(member_id):
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     r = conn.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
     conn.close()
     if r is None:
@@ -192,7 +142,7 @@ def create_member():
     member_type = data.get("type", "student")
     if not check(member_type, "member_type"):
         return jsonify({"error": "type must be student or staff"}), 400
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     existing = conn.execute("SELECT * FROM members WHERE email = ?", (data["email"],)).fetchone()
     if existing is not None:
         conn.close()
@@ -209,7 +159,7 @@ def create_member():
 
 @app.route("/members/<int:member_id>/loans", methods=["GET"])
 def member_loans(member_id):
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     m = conn.execute("SELECT * FROM members WHERE id = ?", (member_id,)).fetchone()
     if m is None:
         conn.close()
@@ -249,7 +199,7 @@ def member_loans(member_id):
 
 @app.route("/loans", methods=["GET"])
 def list_loans():
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     rows = conn.execute("SELECT * FROM loans").fetchall()
     conn.close()
     result = []
@@ -279,7 +229,7 @@ def list_loans():
 
 @app.route("/loans/<int:loan_id>", methods=["GET"])
 def get_loan(loan_id):
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     loan = conn.execute("SELECT * FROM loans WHERE id = ?", (loan_id,)).fetchone()
     conn.close()
     if loan is None:
@@ -313,7 +263,7 @@ def create_loan():
     if data.get("due_date") and not check(data["due_date"], "date"):
         return jsonify({"error": "invalid due_date"}), 400
 
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     book = conn.execute("SELECT * FROM books WHERE id = ?", (data["book_id"],)).fetchone()
     if book is None:
         conn.close()
@@ -381,7 +331,7 @@ def create_loan():
 
 @app.route("/loans/<int:loan_id>/return", methods=["POST"])
 def return_book(loan_id):
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     loan = conn.execute("SELECT * FROM loans WHERE id = ?", (loan_id,)).fetchone()
     if loan is None:
         conn.close()
@@ -424,7 +374,7 @@ def return_book(loan_id):
 @app.route("/loans/<int:loan_id>/renew", methods=["POST"])
 def renew_loan(loan_id):
     global CURRENT_MEMBER
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     loan = conn.execute("SELECT * FROM loans WHERE id = ?", (loan_id,)).fetchone()
     if loan is None:
         conn.close()
@@ -466,7 +416,7 @@ def renew_loan(loan_id):
 
 @app.route("/loans/<int:loan_id>/pay-fine", methods=["POST"])
 def pay_fine(loan_id):
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     loan = conn.execute("SELECT * FROM loans WHERE id = ?", (loan_id,)).fetchone()
     if loan is None:
         conn.close()
@@ -509,7 +459,7 @@ def pay_fine(loan_id):
 
 @app.route("/reports/overdue", methods=["GET"])
 def report_overdue():
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     rows = conn.execute(
         """
         SELECT loans.id, books.title, members.name, loans.due_date
@@ -535,7 +485,7 @@ def report_overdue():
 
 @app.route("/reports/summary", methods=["GET"])
 def report_summary():
-    conn = sqlite3.connect("library.db")
+    conn = db.connect()
     total_books = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
     rows = conn.execute("SELECT * FROM loans").fetchall()
     conn.close()
